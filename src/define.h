@@ -87,21 +87,21 @@ extern float avg_temp_c;
 extern float avg_humid_pct;
 extern float g_heatIndex;
 extern float g_thermalStdDev;
-#define DHT_SD_THRESHOLD 1.0f    // Jitter threshold for DHT instability
-#define DHT_MAX_SLEW_TEMP 2.0f   // Max degrees change per 2s
-#define DHT_MAX_SLEW_HUMID 5.0f  // Max humidity change per 2s
+#define DHT_SD_THRESHOLD 1.0f   // Jitter threshold for DHT instability
+#define DHT_MAX_SLEW_TEMP 2.0f  // Max degrees change per 2s
+#define DHT_MAX_SLEW_HUMID 5.0f // Max humidity change per 2s
 extern bool dhtEnabled;
 extern bool ds18b20Enabled;
 
 // CO2 Management
-#define PIN_MHZ_RX 17            // MH-Z19 RX Pin (Connect to Sensor TX)
-#define PIN_MHZ_TX 18            // MH-Z19 TX Pin (Connect to Sensor RX)
+#define PIN_MHZ_RX 17 // MH-Z19 RX Pin (Connect to Sensor TX)
+#define PIN_MHZ_TX 18 // MH-Z19 TX Pin (Connect to Sensor RX)
 extern int g_co2Ppm;
 extern int g_co2Temp;
 extern float g_co2StdDev;
 extern bool co2Enabled;
 extern bool co2WarmedUp;
-#define CO2_SD_THRESHOLD 150.0f  // Jitter threshold for MH-Z19E instability
+#define CO2_SD_THRESHOLD 150.0f // Jitter threshold for MH-Z19E instability
 
 // Tank Management Settings
 #define PIN_TANK_TRIG 10
@@ -114,29 +114,29 @@ extern float g_laserDistanceCm;
 extern float g_laserLevelPct;
 extern float g_laserStdDev;
 extern bool laserEnabled;
-#define TOF_SD_THRESHOLD 1.5f      // Jitter threshold for Laser instability
-#define TOF_JUMP_THRESHOLD 1.2f    // Change in cm to trigger fast EMA response
-#define TOF_MEDIAN_SAMPLES 7       // Samples for median burst
-#define TOF_MAX_SPREAD_CM 2.0f     // Max difference between min/max in a burst
+#define TOF_SD_THRESHOLD 1.5f   // Jitter threshold for Laser instability
+#define TOF_JUMP_THRESHOLD 1.2f // Change in cm to trigger fast EMA response
+#define TOF_MEDIAN_SAMPLES 7    // Samples for median burst
+#define TOF_MAX_SPREAD_CM 2.0f  // Max difference between min/max in a burst
 
 // Water surface LaserTOF stability (reflections, refraction)
 #define WATER_REFRACTIVE_INDEX 1.33f
-#define TOF_REFLECTION_THRESHOLD_CM 8.0f  // Reject median < this as reflection
+#define TOF_REFLECTION_THRESHOLD_CM 8.0f // Reject median < this as reflection
 #define TOF_WATER_COR
 
 // Calibration for a 30cm Tank
-#define TANK_HEIGHT_CM 30.0f      // Physical height of the tank
+#define TANK_HEIGHT_CM 30.0f        // Physical height of the tank
 #define TANK_MOTOR_SUCTION_CM 12.0f // Height of suction mouth from bottom
 #define TANK_SAFETY_BUFFER_CM 2.0f  // Safety buffer above suction to trigger warning early
 
-#define TANK_FULL_DIST_CM 2.0f    // 100% Usable (2cm from sensor = 28cm water) - Range extended for testing
+#define TANK_FULL_DIST_CM 2.0f     // 100% Usable (2cm from sensor = 28cm water) - Range extended for testing
 #define TANK_EMPTY_DIST_CM 30.0f   // 0% = tank empty (sensor at 30cm height)
 #define TANK_TOTAL_VOLUME_L 150.0f // Total capacity in Liters
 
-#define TANK_SD_THRESHOLD 2.5f    // Standard Deviation threshold for jitter detection
-#define TANK_MAX_SLEW_CM 10.0f    // Max allowable distance change per 5s sample
-#define TANK_HEALTH_THRESHOLD 70.0f // Trigger alert if health is below this
-#define TANK_HEALTH_EMA_ALPHA 0.1f  // Heavy LPF for health stability (0.1 = 10% new, 90% old)
+#define TANK_SD_THRESHOLD 2.5f        // Standard Deviation threshold for jitter detection
+#define TANK_MAX_SLEW_CM 10.0f        // Max allowable distance change per 5s sample
+#define TANK_HEALTH_THRESHOLD 70.0f   // Trigger alert if health is below this
+#define TANK_HEALTH_EMA_ALPHA 0.1f    // Heavy LPF for health stability (0.1 = 10% new, 90% old)
 #define TANK_HEALTH_WIPE_MS 3600000UL // Duration required to trigger alert (1 hour)
 
 extern float g_waterLevelPct;
@@ -159,6 +159,11 @@ extern bool g_circPumpEnabled;
 #define AC_FLOAT_DEBOUNCE_MS 3000UL // 3 sec
 #define AC_EMPTY_DEBOUNCE_MS 1000UL // 1 sec debounce for empty detection
 #define AC_PUMP_RUN_TIME_MS 90000UL // 90 seconds max runtime watchdog
-extern float g_acWaterPumpedToday; // Ensure this is visible to main.cpp
+extern float g_acWaterPumpedToday;  // Ensure this is visible to main.cpp
+
+// Backend WebSocket Configuration
+#define BACKEND_WS_HOST "les-galvanic-interruptedly.ngrok-free.dev" // Replace with your actual NGROK host
+#define BACKEND_WS_PORT 443                                         // NGROK HTTPS/WSS uses port 443
+#define BACKEND_WS_PATH "/ws/device"
 
 #endif // DEFINE_H

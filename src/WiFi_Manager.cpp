@@ -127,6 +127,9 @@ void wifiInit()
   if (isPendingVerify)
     rollbackTimer = millis();
 
+  // Set the WiFi hostname to the device ID for easier identification on the network
+  WiFi.setHostname(g_deviceId.c_str());
+
   // Register WiFi event handlers to enable event-driven connection management.
   WiFi.onEvent(WiFiEventConnected, ARDUINO_EVENT_WIFI_STA_CONNECTED);
   WiFi.onEvent(WiFiEventGotIP, ARDUINO_EVENT_WIFI_STA_GOT_IP);

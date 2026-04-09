@@ -7,6 +7,7 @@
 #include "OTA_Manager.h"
 #include "RTC_Manager.h"
 #include "Command_Manager.h"
+#include "Backend_Manager.h"
 
 #include "Thermal_Manager.h"
 #include "Tank_Manager.h"
@@ -27,7 +28,7 @@ SemaphoreHandle_t i2cMutex;            // Mutex for I2C bus synchronization
 volatile int g_currentSystemState = 0; // Global variable for current system state (updated by LED task)
 int ntpRetryCount = 0;
 bool wifiConnected = false;
-bool g_stressTestActive = false;       // Initialize stress test flag
+bool g_stressTestActive = false; // Initialize stress test flag
 String g_deviceId = "";
 
 #define LOG_FILE_PATH "/system_log.txt"
@@ -45,9 +46,10 @@ RTC_DATA_ATTR size_t rtcLogIndex = 0;
 void logStatusToFile(const char *data, bool forceFlush = false)
 {
   size_t dataLen = strlen(data);
-  
+
   // Safety: If single log entry is larger than buffer, truncate it
-  if (dataLen >= RAM_BUF_MAX_SIZE) dataLen = RAM_BUF_MAX_SIZE - 1;
+  if (dataLen >= RAM_BUF_MAX_SIZE)
+    dataLen = RAM_BUF_MAX_SIZE - 1;
 
   // Check if adding this data would overflow the buffer
   bool willOverflow = (rtcLogIndex + dataLen >= RAM_BUF_MAX_SIZE - 1);
@@ -113,6 +115,10 @@ void systemInfoTask(void *parameter)
 
     report += "\n--- System Status Report ---\n";
     char line[128];
+    snprintf(line, sizeof(line), "Device ID:     %s\n", g_deviceId.c_str());
+    report += line;
+    snprintf(line, sizeof(line), "Firmware Ver:  %s\n", FIRMWARE_VERSION);
+    report += line;
     snprintf(line, sizeof(line), "Uptime:        %dd %dh %dm\n", days, hours, mins);
     report += line;
     report += "Internal RTC:  " + rtcGetLocalTimeStr() + "\n";
@@ -221,10 +227,11 @@ void systemInfoTask(void *parameter)
       report += line;
 
       // Stability Diagnostics for 400kHz validation
-      if (g_laserI2cTotal > 0) {
-          float errorRate = (g_laserI2cErrors * 100.0f) / g_laserI2cTotal;
-          snprintf(line, sizeof(line), "I2C Error Rate: %.3f %% (%u failures)\n", errorRate, g_laserI2cErrors);
-          report += line;
+      if (g_laserI2cTotal > 0)
+      {
+        float errorRate = (g_laserI2cErrors * 100.0f) / g_laserI2cTotal;
+        snprintf(line, sizeof(line), "I2C Error Rate: %.3f %% (%u failures)\n", errorRate, g_laserI2cErrors);
+        report += line;
       }
     }
 
@@ -263,19 +270,33 @@ void setup()
   Serial.begin(115200);
   delay(2000); // 2sec boot delay is sufficient for most serial monitors
   Serial.println("ESP32-S3 WiFi + RGB LED + NTP + OTA Starting...");
-// Load or generate unique device ID from eFuse MAC (full decimal as uint64_t)
+  // Load or generate unique device ID from eFuse MAC (Purely Decimal)
   prefs.begin("device", false);
   g_deviceId = prefs.getString("device-id", "");
   prefs.end();
-  if (g_deviceId.length() == 0) {
+
+  // Validate that the stored ID follows the format "COSYFARM-<decimal>"
+  bool isValid = g_deviceId.startsWith("COSYFARM-");
+  if (isValid) {
+    for (size_t i = 9; i < g_deviceId.length(); i++) {
+      if (!isDigit(g_deviceId[i])) {
+        isValid = false;
+        break;
+      }
+    }
+  }
+
+  if (!isValid)
+  {
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
-uint64_t mac_decimal = 0;
-    for (int i = 0; i < 6; i++) {
+    uint64_t mac_decimal = 0;
+    for (int i = 0; i < 6; i++)
+    {
       mac_decimal = (mac_decimal << 8) | mac[i];
     }
     g_deviceId = "COSYFARM-" + String(mac_decimal);
-  Serial.printf("Device ID: %s\n", g_deviceId.c_str());
+    Serial.printf("Generated Device ID: %s\n", g_deviceId.c_str());
     prefs.begin("device", false);
     prefs.putString("device-id", g_deviceId);
     prefs.end();
@@ -310,6 +331,7 @@ uint64_t mac_decimal = 0;
 
   // Print ESP32 Chip and Memory Information
   Serial.println("\n--- Hardware Information ---");
+  Serial.printf("Device ID:     %s\n", g_deviceId.c_str());
   Serial.printf("Chip Model:    %s\n", ESP.getChipModel());
   Serial.printf("Chip Revision: %d\n", ESP.getChipRevision());
   Serial.printf("Cores:         %d\n", ESP.getChipCores());
@@ -392,7 +414,15 @@ uint64_t mac_decimal = 0;
   xTaskCreate(
       thermalTask,
       "Thermal",
-      4096,  // 16KB was excessive for DHT reads; 4KB is plenty.
+      4096, // 16KB was excessive for DHT reads; 4KB is plenty.
+      NULL,
+      1,
+      NULL);
+
+  xTaskCreate(
+      backendTask,
+      "Backend",
+      8192, // Stack for WebSocket processing
       NULL,
       1,
       NULL);

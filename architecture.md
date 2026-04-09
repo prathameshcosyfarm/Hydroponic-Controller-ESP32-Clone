@@ -34,7 +34,7 @@ Repo: https://github.com/PrathameshMestry/CosyFarm-ESP32
 - **define.h**: Pins, globals (extern), states (0=NTP_SYNC ... 6=OTA_UPDATE), timings (AC_PUMP_RUN_TIME_MS=90s etc.), FIRMWARE_VERSION=\"1.0.0\". Defines `stateQueue` for inter-task state communication and `g_currentSystemState` as the authoritative system state. Includes new constants for Laser TOF (`TOF_SD_THRESHOLD`, `TOF_JUMP_THRESHOLD`, `TOF_MEDIAN_SAMPLES`, `TOF_MAX_SPREAD_CM`), AC Water (`AC_EMPTY_DEBOUNCE_MS`, `AC_PUMP_RUN_TIME_MS`), and `g_acWaterPumpedToday`.
 - **Logging**: LittleFS `/system_log.txt` (128kB trunc), RTC_DATA_ATTR 2kB buffer (persist resets/brownouts, flush overflow/10min/critical/60s reports).
 - **Storage**: NVS prefs (\"device\"/\"wifi-creds\"/\"ota\"), LittleFS mounted in setup.
-- **ID**: g_deviceId = \"COSYFARM-\" + eFuse MAC.
+- **ID**: g_deviceId = "COSYFARM-" + Decimal representation of eFuse MAC.
 
 ### FreeRTOS Tasks (all pri=1)
 
@@ -49,6 +49,7 @@ Repo: https://github.com/PrathameshMestry/CosyFarm-ESP32
 | **WiFi_Manager** | STA (NVS/\"COSYFARM\") monitor+rollback | Async/100ms | 8192 | wifiConnected; AP SSID=g_deviceId. Sends state changes to `stateQueue`. Uses `g_syncTriggered` for NTP/OTA. |
 | **systemInfoTask** | Aggregate Serial/LittleFS reports | 60s | 8192 | Uptime, sensors/CO2/Laser, WiFi, mem/heap/PSRAM, `g_currentSystemState`/OTA prog. |
 | **wifiMonitorTask** | Events+NTP/OTA | 100ms | 8192 | Reconnect, ntpAttempt/otaCheckAfterNtp. Sends state changes to `stateQueue`. |
+| **Backend_Manager** | WebSocket JSON data streaming | 10s | 8192 | Real-time sensor telemetry to `BACKEND_WS_HOST`. |
 
 **Other Modules** (non-task/init-only):
  
@@ -71,7 +72,7 @@ Repo: https://github.com/PrathameshMestry/CosyFarm-ESP32
 
 ### Key Globals (define.h extern)
 - Sensors: avg_temp_c/avg_humid_pct, water_temp_c, g_waterLevelPct/g_waterVolumeL, g_tankStdDev/g_tankHealthPct, g_laserDistanceCm/g_laserLevelPct/g_laserStdDev, g_co2Ppm/g_co2Temp, g_co2StdDev, g_acWaterPumpedToday, g_circPumpRunning, g_circPumpEnabled.
-- System: `g_currentSystemState` (0=NTP_SYNC..6=OTA_UPDATE), `stateQueue`, wifiConnected/ntpRetryCount, g_deviceId=\"COSYFARM-MAC\", g_lat/g_lon/g_timezone/g_epochTime/g_utcTime/g_localTime, dhtEnabled/tankSensorEnabled/ds18b20Enabled/co2Enabled/laserEnabled/co2WarmedUp, otaInProgress, targetOtaMd5.
+- System: `g_currentSystemState` (0=NTP_SYNC..6=OTA_UPDATE), `stateQueue`, wifiConnected/ntpRetryCount, g_deviceId=\"COSYFARM-<ID>\", g_lat/g_lon/g_timezone/g_epochTime/g_utcTime/g_localTime, dhtEnabled/tankSensorEnabled/ds18b20Enabled/co2Enabled/laserEnabled/co2WarmedUp, otaInProgress, targetOtaMd5.
 
 ## Data Flow
 1. setup(): Serial(115200)/10s delay, g_deviceId=eFuse MAC→NVS, LittleFS/RTC log buffer, hw info print, ledInit/wifiInit → creates `stateQueue` → tasks(wifiMonitor/systemInfo/co2/laser/acWater/tank/thermal) → sensor inits.
@@ -94,6 +95,7 @@ lib_deps =
     adafruit/DHT sensor library @ ^1.4.6
     paulstoffregen/OneWire @ ^2.3.7
     milesburton/DallasTemperature @ ^3.9.0
+    links2004/WebSockets @ ^2.4.1
     https://github.com/WifWaf/MH-Z19.git # MH-Z19E library
     https://github.com/adafruit/Adafruit_VL53L0X.git # VL53L0X Laser TOF library
 build_flags = 
