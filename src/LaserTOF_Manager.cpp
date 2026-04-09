@@ -1,0 +1,193 @@
+#include "LaserTOF_Manager.h"
+#include <Wire.h>
+#include <Adafruit_VL53L0X.h>
+#include <vector>
+#include <algorithm>
+
+Adafruit_VL53L0X lox = Adafruit_VL53L0X();
+
+float g_laserDistanceCm = 0.0f;
+float g_laserLevelPct = 0.0f;
+float g_laserStdDev = 0.0f;
+float g_laserHealthPct = 100.0f;
+bool laserEnabled = false;
+
+static int laserConsecutiveFails = 0;
+const int MAX_LASER_FAILS = 10;
+
+// Buffer for Jitter Analysis
+#define TOF_AVG_SAMPLES 10
+static float tof_samples[TOF_AVG_SAMPLES];
+static int tof_sample_idx = 0;
+static bool tof_samples_filled = false;
+
+const float TOF_EMA_SLOW = 0.10f;
+const float TOF_EMA_FAST = 0.70f;
+
+void laserInit()
+{
+    // Pre-initialization: Ensure pins are driven high to help the I2C bus start cleanly.
+    pinMode(PIN_TOF_SDA, INPUT_PULLUP);
+    pinMode(PIN_TOF_SCL, INPUT_PULLUP);
+    delay(50);
+
+    // Initialize I2C with explicit pins and standard 100kHz frequency.
+    if (!Wire.begin(PIN_TOF_SDA, PIN_TOF_SCL, 100000))
+    {
+        Serial.println(F("Laser TOF: I2C hardware initialization failed"));
+        laserEnabled = false;
+        return;
+    }
+
+    // Increase timeout to 100ms to be more resilient against WiFi-induced bus delays/noise
+    Wire.setTimeOut(100);
+
+    // Check for sensor presence at the default address (0x29) before calling the library.
+    // This prevents a flood of internal library I2C error logs if the sensor is missing.
+    Wire.beginTransmission(0x29);
+    if (Wire.endTransmission() != 0)
+    {
+        Serial.println(F("Laser TOF: VL53L0X sensor not detected at address 0x29. Checking wiring..."));
+        laserEnabled = false;
+        return;
+    }
+
+    if (!lox.begin(0x29, false, &Wire))
+    {
+        Serial.println(F("Laser TOF: Failed to boot VL53L0X"));
+        laserEnabled = false;
+    }
+    else
+    {
+        Serial.println(F("Laser TOF: VL53L0X Initialized"));
+        laserEnabled = true;
+        // Long range mode for better performance in larger tanks
+        lox.configSensor(Adafruit_VL53L0X::VL53L0X_SENSE_LONG_RANGE);
+    }
+}
+
+void laserReset()
+{
+    laserConsecutiveFails = 0;
+    laserEnabled = true;
+    tof_samples_filled = false;
+    tof_sample_idx = 0;
+    Serial.println("Laser: Sensor flags reset.");
+}
+
+void laserUpdate()
+{
+    if (!laserEnabled)
+        return;
+
+    // Periodically verify the bus is still alive before a burst.
+    // This helps catch cases where WiFi interference hung the sensor.
+    Wire.beginTransmission(0x29);
+    if (Wire.endTransmission() != 0)
+    {
+        laserConsecutiveFails++;
+        if (laserConsecutiveFails >= MAX_LASER_FAILS)
+        {
+            laserEnabled = false;
+        }
+        return;
+    }
+
+    std::vector<float> validReadings;
+    VL53L0X_RangingMeasurementData_t measure;
+
+    // Take a burst of samples for the Median Filter
+    for (int i = 0; i < TOF_MEDIAN_SAMPLES; i++)
+    {
+        lox.rangingTest(&measure, false);
+
+        // Status 0 indicates a high-quality, valid return signal
+        if (measure.RangeStatus == 0)
+        {
+            float distCm = measure.RangeMilliMeter / 10.0f;
+            if (distCm > 0)
+            {
+                validReadings.push_back(distCm);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(40)); // Small delay between pulses to reduce interference
+    }
+
+    // --- Signal Quality (Health) Calculation ---
+    float burstHealth = (validReadings.size() * 100.0f) / TOF_MEDIAN_SAMPLES;
+    g_laserHealthPct = (0.2f * burstHealth) + (0.8f * g_laserHealthPct); // LPF for stability
+
+    // Ensure we have enough samples to determine a meaningful median
+    if (validReadings.size() >= (TOF_MEDIAN_SAMPLES / 2))
+    {
+        std::sort(validReadings.begin(), validReadings.end());
+
+        float burstMin = validReadings.front();
+        float burstMax = validReadings.back();
+        float burstSpread = burstMax - burstMin;
+
+        // Ripple Rejection: If the spread is too high, the surface is too unstable
+        if (burstSpread > TOF_MAX_SPREAD_CM)
+        {
+            Serial.printf("Laser: Burst rejected - High ripple noise (Spread: %.2f cm)\n", burstSpread);
+            laserConsecutiveFails++;
+            return;
+        }
+
+        float medianDist = validReadings[validReadings.size() / 2];
+
+        laserConsecutiveFails = 0;
+
+        // --- Filtering Stage: Adaptive EMA ---
+        if (g_laserDistanceCm <= 0)
+        {
+            g_laserDistanceCm = medianDist; // Seed
+        }
+        else
+        {
+            float diff = abs(medianDist - g_laserDistanceCm);
+            float currentAlpha = (diff > TOF_JUMP_THRESHOLD) ? TOF_EMA_FAST : TOF_EMA_SLOW;
+            g_laserDistanceCm = (currentAlpha * medianDist) + (1.0f - currentAlpha) * g_laserDistanceCm;
+        }
+
+        // --- Jitter Analysis (Standard Deviation) ---
+        tof_samples[tof_sample_idx] = g_laserDistanceCm;
+        tof_sample_idx = (tof_sample_idx + 1) % TOF_AVG_SAMPLES;
+        if (tof_sample_idx == 0)
+            tof_samples_filled = true;
+
+        int count = tof_samples_filled ? TOF_AVG_SAMPLES : tof_sample_idx;
+        float sum = 0;
+        for (int i = 0; i < count; i++)
+            sum += tof_samples[i];
+        float avgDist = sum / count;
+
+        float sumSqDiff = 0;
+        for (int i = 0; i < count; i++)
+            sumSqDiff += sq(tof_samples[i] - avgDist);
+        g_laserStdDev = sqrt(sumSqDiff / count);
+
+        // --- Percentage Calculation ---
+        float pct = (TANK_EMPTY_DIST_CM - g_laserDistanceCm) / (TANK_EMPTY_DIST_CM - TANK_FULL_DIST_CM) * 100.0f;
+        g_laserLevelPct = constrain(pct, 0.0f, 100.0f);
+    }
+    else
+    {
+        laserConsecutiveFails++; // Increment only if all retries failed
+        if (laserConsecutiveFails >= MAX_LASER_FAILS)
+        {
+            laserEnabled = false;
+            Serial.println("Laser: CRITICAL - VL53L0X persistent failure.");
+        }
+    }
+}
+
+void laserTask(void *parameter)
+{
+    Serial.println("Laser Task: Parallel water level monitoring started");
+    for (;;)
+    {
+        laserUpdate();
+        vTaskDelay(pdMS_TO_TICKS(5000)); // Sync with ultrasonic 5s cycle
+    }
+}
