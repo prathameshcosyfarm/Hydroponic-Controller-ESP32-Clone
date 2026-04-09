@@ -13,6 +13,8 @@ extern float g_laserHealthPct;
 extern bool laserEnabled;
 extern bool g_laserReflectionFlag;
 extern float g_laserCorrectedDistCm;
+extern uint32_t g_laserI2cTotal;  // Total I2C transaction attempts
+extern uint32_t g_laserI2cErrors; // Total low-level I2C failures
 
 // FreeRTOS task function
 void laserTask(void *parameter);

@@ -31,6 +31,7 @@ bool co2_samples_filled = false;
 void co2Init()
 {
     mhzSerial.begin(9600, SERIAL_8N1, PIN_MHZ_RX, PIN_MHZ_TX);
+    mhzSerial.setTimeout(150); // Prevent long task blocks if sensor is unplugged
     lastCo2Recovery = millis();
     Serial.println("CO2 Manager: MH-Z19E Initialized on UART2");
 }
@@ -196,13 +197,14 @@ void co2Update()
 
 void co2Task(void *parameter)
 {
-    Serial.println("CO2 Task: Monitoring CO2 levels every 5s");
+    Serial.println("CO2 Task: Monitoring CO2 levels started");
     // Initial delay to allow UART stability
     vTaskDelay(pdMS_TO_TICKS(2000));
 
     for (;;)
     {
         co2Update();
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        uint32_t delayMs = g_stressTestActive ? 100 : 5000;
+        vTaskDelay(pdMS_TO_TICKS(delayMs));
     }
 }

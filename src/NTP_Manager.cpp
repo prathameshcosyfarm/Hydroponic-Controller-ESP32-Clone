@@ -134,7 +134,7 @@ void ntpUpdateOnConnect() {
     // The loop retries for up to 5 seconds (10 retries * 500ms).
     int retry = 0;
     while (time(nullptr) < 1000000000L && retry < 10) {
-      delay(500); // Wait for half a second.
+      vTaskDelay(pdMS_TO_TICKS(500)); // Non-blocking FreeRTOS delay
       retry++;
     }
     

@@ -93,12 +93,6 @@ void thermalUpdate()
       dht_sd_idx = (dht_sd_idx + 1) % DHT_SD_SAMPLES;
       if (dht_sd_idx == 0) dht_sd_filled = true;
 
-      // --- Step 2: Median Extraction (Noise Rejection) ---
-      // We use a small window of the last 3 samples to find a median
-      std::vector<float> t_sort, h_sort;
-      int window = dht_sd_filled ? 5 : dht_sd_idx;
-      if (window < 1) window = 1;
-
       // --- Jitter Analysis (Standard Deviation) ---
       int sd_count = dht_sd_filled ? DHT_SD_SAMPLES : dht_sd_idx;
       float sd_sum = 0;

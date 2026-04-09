@@ -94,7 +94,7 @@ void otaCheckAfterNtp()
         otaInProgress = true; // Set flag before starting task
         newState = STATE_OTA_UPDATE;
         xQueueSend(stateQueue, &newState, 0);
-        xTaskCreate(otaUpdateTask, "OTAUpdate", 8192, NULL, 2, &otaTaskHandle);
+        xTaskCreate(otaUpdateTask, "OTAUpdate", 12288, NULL, 2, &otaTaskHandle); // Increased stack for 4KB buffer
         return;
       }
     }
@@ -177,8 +177,8 @@ void otaUpdateTask(void *parameter)
   }
 
   uint32_t written = 0; // Keep track of bytes written.
-  // Buffer for reading firmware data in chunks.
-  uint8_t buff[512];
+  // Larger buffer (4KB) significantly improves flash write performance
+  uint8_t buff[4096];
   size_t len;
 
   // Read data from the stream and write it to the Update partition.

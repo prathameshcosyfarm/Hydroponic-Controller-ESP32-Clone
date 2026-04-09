@@ -97,6 +97,9 @@ void tankUpdate()
     {
         std::vector<float> validReadings;
 
+        // Calculate speed of sound once per burst instead of inside the loop
+        float speedOfSound = (avg_temp_c > 0) ? (331.3f + (0.606f * avg_temp_c)) / 10000.0f : 0.0343f;
+
         // Take a burst of samples for the Median Filter
         for (int i = 0; i < TANK_MEDIAN_SAMPLES; i++)
         {
@@ -116,7 +119,6 @@ void tankUpdate()
             delayMicroseconds(10);
             digitalWrite(PIN_TANK_TRIG, LOW);
 
-            float speedOfSound = (avg_temp_c > 0) ? (331.3f + (0.606f * avg_temp_c)) / 10000.0f : 0.0343f;
             // Use a 30ms timeout (approx 5 meters)
             long duration = pulseIn(PIN_TANK_ECHO, HIGH, 30000);
 
@@ -138,13 +140,13 @@ void tankUpdate()
         if (validReadings.size() >= 3)
         {
             std::sort(validReadings.begin(), validReadings.end());
-            float medianTemp = validReadings[validReadings.size() / 2];
+            float medianDist = validReadings[validReadings.size() / 2];
             float burstSpread = validReadings.back() - validReadings.front();
 
             // Use the median if the spread is within reason (10cm default for stability)
             if (burstSpread < 10.0f)
             {
-                distance = medianTemp;
+                distance = medianDist;
             }
             else
             {
@@ -328,6 +330,7 @@ void tankTask(void *parameter)
     for (;;)
     {
         tankUpdate();
-        vTaskDelay(pdMS_TO_TICKS(5000)); // Sample every 5 seconds
+        uint32_t delayMs = g_stressTestActive ? 100 : 5000;
+        vTaskDelay(pdMS_TO_TICKS(delayMs));
     }
 }

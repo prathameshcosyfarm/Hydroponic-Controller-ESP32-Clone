@@ -23,9 +23,11 @@
 // Global definitions (define.h extern impl)
 Preferences prefs;
 QueueHandle_t stateQueue;              // FreeRTOS queue for state changes
+SemaphoreHandle_t i2cMutex;            // Mutex for I2C bus synchronization
 volatile int g_currentSystemState = 0; // Global variable for current system state (updated by LED task)
 int ntpRetryCount = 0;
 bool wifiConnected = false;
+bool g_stressTestActive = false;       // Initialize stress test flag
 String g_deviceId = "";
 
 #define LOG_FILE_PATH "/system_log.txt"
@@ -43,6 +45,9 @@ RTC_DATA_ATTR size_t rtcLogIndex = 0;
 void logStatusToFile(const char *data, bool forceFlush = false)
 {
   size_t dataLen = strlen(data);
+  
+  // Safety: If single log entry is larger than buffer, truncate it
+  if (dataLen >= RAM_BUF_MAX_SIZE) dataLen = RAM_BUF_MAX_SIZE - 1;
 
   // Check if adding this data would overflow the buffer
   bool willOverflow = (rtcLogIndex + dataLen >= RAM_BUF_MAX_SIZE - 1);
@@ -214,6 +219,13 @@ void systemInfoTask(void *parameter)
 
       snprintf(line, sizeof(line), "Laser Health: %.0f %% (%s)\n", g_laserHealthPct, lStatus);
       report += line;
+
+      // Stability Diagnostics for 400kHz validation
+      if (g_laserI2cTotal > 0) {
+          float errorRate = (g_laserI2cErrors * 100.0f) / g_laserI2cTotal;
+          snprintf(line, sizeof(line), "I2C Error Rate: %.3f %% (%u failures)\n", errorRate, g_laserI2cErrors);
+          report += line;
+      }
     }
 
     snprintf(line, sizeof(line), "AC Pumped:     %.1f L (Today)\n", g_acWaterPumpedToday);
@@ -249,7 +261,7 @@ void systemInfoTask(void *parameter)
 void setup()
 {
   Serial.begin(115200);
-  delay(10000); // 10sec boot delay for serial monitor
+  delay(2000); // 2sec boot delay is sufficient for most serial monitors
   Serial.println("ESP32-S3 WiFi + RGB LED + NTP + OTA Starting...");
   // Generate unique device ID from eFuse MAC
   uint8_t mac[6];
@@ -305,6 +317,7 @@ void setup()
 
   // Create the state queue
   stateQueue = xQueueCreate(5, sizeof(int)); // Queue can hold 5 integer state messages
+  i2cMutex = xSemaphoreCreateMutex();        // Create the I2C mutex
 
   ledInit();  // Now safe: task starts after queue is ready
   wifiInit(); // Safe: uses queue to signal connecting state
@@ -321,7 +334,7 @@ void setup()
   xTaskCreate(
       systemInfoTask, // Function to be executed by the task
       "SystemInfo",   // Name of the task
-      8192,           // Stack size in bytes
+      4096,           // 4KB is sufficient for report generation
       NULL,           // Parameter to pass to the task
       1,              // Priority of the task
       NULL);          // Task handle
@@ -373,7 +386,7 @@ void setup()
   xTaskCreate(
       thermalTask,
       "Thermal",
-      16384, // Aligned with architecture.md
+      4096,  // 16KB was excessive for DHT reads; 4KB is plenty.
       NULL,
       1,
       NULL);

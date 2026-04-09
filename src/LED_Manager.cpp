@@ -110,16 +110,18 @@ void ledBlink(int state, unsigned long now)
 void ledTask(void *parameter)
 {
   int receivedState;
+  const TickType_t xResolution = pdMS_TO_TICKS(20); // 20ms resolution for smoother blinking
+
   for (;;)
   {
-    // Try to receive a new state from the queue without blocking
-    if (xQueueReceive(stateQueue, &receivedState, 0) == pdTRUE)
+    // Block on the queue. If a new state arrives, we react instantly.
+    // If not, we wake up every 20ms to handle the blink timing.
+    if (xQueueReceive(stateQueue, &receivedState, xResolution) == pdTRUE)
     {
       currentLedState = receivedState;      // Update internal state
       g_currentSystemState = receivedState; // Update the global authoritative state
     }
 
     ledBlink(currentLedState, millis());
-    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }

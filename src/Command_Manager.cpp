@@ -107,5 +107,12 @@ void commandUpdate()
             Serial.println(F("\n[COMMAND] Triggering Manual Circulation..."));
             triggerManualCirc();
         }
+
+        // Command 'X': Toggle Stress Test (High-Frequency Sampling)
+        if (cmd == 'X' || cmd == 'x')
+        {
+            g_stressTestActive = !g_stressTestActive;
+            Serial.printf("\n[COMMAND] Stress Test %s\n", g_stressTestActive ? "ENABLED (100ms cycles)" : "DISABLED (Standard cycles)");
+        }
     }
 }

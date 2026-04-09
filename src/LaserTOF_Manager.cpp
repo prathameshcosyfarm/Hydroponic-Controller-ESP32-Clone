@@ -13,6 +13,8 @@ float g_laserHealthPct = 100.0f;
 bool laserEnabled = false;
 bool g_laserReflectionFlag = false;
 float g_laserCorrectedDistCm = 0.0f;
+uint32_t g_laserI2cTotal = 0;
+uint32_t g_laserI2cErrors = 0;
 static int laserConsecutiveFails = 0;
 const int MAX_LASER_FAILS = 10;
 
@@ -32,16 +34,17 @@ void laserInit()
     pinMode(PIN_TOF_SCL, INPUT_PULLUP);
     delay(50);
 
-    // Initialize I2C with explicit pins and standard 100kHz frequency.
-    if (!Wire.begin(PIN_TOF_SDA, PIN_TOF_SCL, 100000))
+    // Initialize I2C with explicit pins and 400kHz (Fast Mode).
+    if (!Wire.begin(PIN_TOF_SDA, PIN_TOF_SCL, 400000))
     {
         Serial.println(F("Laser TOF: I2C hardware initialization failed"));
         laserEnabled = false;
         return;
     }
 
-    // Increase timeout to 100ms to be more resilient against WiFi-induced bus delays/noise
-    Wire.setTimeOut(100);
+    // 50ms is the "sweet spot" for ESP32. It covers long clock-stretching and 
+    // WiFi-induced latency without hanging the task too long on hardware failure.
+    Wire.setTimeOut(50);
 
     // Check for sensor presence at the default address (0x29) before calling the library.
     // This prevents a flood of internal library I2C error logs if the sensor is missing.
@@ -72,6 +75,8 @@ void laserReset()
     laserConsecutiveFails = 0;
     laserEnabled = true;
     tof_samples_filled = false;
+    g_laserI2cTotal = 0;
+    g_laserI2cErrors = 0;
     tof_sample_idx = 0;
     g_laserReflectionFlag = false;
     Serial.println("Laser: Sensor flags reset.");
@@ -84,8 +89,23 @@ void laserUpdate()
 
     // Periodically verify the bus is still alive before a burst.
     // This helps catch cases where WiFi interference hung the sensor.
-    Wire.beginTransmission(0x29);
-    if (Wire.endTransmission() != 0)
+    bool busReady = false;
+    if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        g_laserI2cTotal++;
+        Wire.beginTransmission(0x29);
+        busReady = (Wire.endTransmission() == 0);
+        if (!busReady) g_laserI2cErrors++;
+        xSemaphoreGive(i2cMutex);
+    } else {
+        // The mutex is stuck or held by another high-priority task for too long.
+        Serial.println(F("Laser TOF: Mutex Timeout during bus check!"));
+        laserConsecutiveFails++;
+        if (laserConsecutiveFails >= MAX_LASER_FAILS) 
+            laserEnabled = false;
+        return;
+    }
+
+    if (!busReady)
     {
         laserConsecutiveFails++;
         if (laserConsecutiveFails >= MAX_LASER_FAILS)
@@ -101,10 +121,21 @@ void laserUpdate()
     // Take a burst of samples for the Median Filter
     for (int i = 0; i < TOF_MEDIAN_SAMPLES; i++)
     {
-        lox.rangingTest(&measure, false);
+        bool validReading = false;
+        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            g_laserI2cTotal++;
+            lox.rangingTest(&measure, false);
+            validReading = (measure.RangeStatus == 0);
+            if (measure.RangeStatus == 4) g_laserI2cErrors++; // Status 4 is typically a comms error
+            xSemaphoreGive(i2cMutex);
+        } else {
+            // If we can't get the bus during the burst, we just skip this specific sample
+            Serial.println(F("Laser TOF: Mutex Timeout during burst sample!"));
+            continue; 
+        }
 
         // Status 0 indicates a high-quality, valid return signal
-        if (measure.RangeStatus == 0)
+        if (validReading)
         {
             float distCm = measure.RangeMilliMeter / 10.0f;
             if (distCm > 0)
@@ -205,7 +236,7 @@ void laserTask(void *parameter)
     for (;;)
     {
         laserUpdate();
-        vTaskDelay(pdMS_TO_TICKS(5000)); // Sync with ultrasonic 5s cycle
+        uint32_t delayMs = g_stressTestActive ? 100 : 5000;
+        vTaskDelay(pdMS_TO_TICKS(delayMs));
     }
 }
-

@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <freertos/queue.h> // Required for QueueHandle_t
 #include <WiFi.h>
 #include <Preferences.h>
@@ -25,8 +26,10 @@ extern String g_timezone;
 // Current operational state of the device.
 // Replaced by a queue for inter-task communication and a global for current status.
 extern QueueHandle_t stateQueue;
+extern SemaphoreHandle_t i2cMutex;
 extern volatile int g_currentSystemState;
 
+extern bool g_stressTestActive; // Global flag for high-frequency sampling
 // Define various states for the device's operation.
 #define STATE_NTP_SYNC 0
 #define STATE_AP 1
@@ -58,8 +61,8 @@ extern String g_deviceId;
 // to decide if an update is required.
 #define FIRMWARE_VERSION "1.0.0"
 
-#define OTA_VERSION_URL "https://raw.githubusercontent.com/PrathameshMestry/CosyFarm-ESP32/main/version.txt"
-#define OTA_FIRMWARE_URL "https://raw.githubusercontent.com/PrathameshMestry/CosyFarm-ESP32/main/firmware.bin"
+#define OTA_VERSION_URL "https://raw.githubusercontent.com/profpmterna/Hydroponic-Controller-ESP32-Clone/refs/heads/main/OTA%20Files/version.txt"
+#define OTA_FIRMWARE_URL "https://raw.githubusercontent.com/profpmterna/Hydroponic-Controller-ESP32-Clone/refs/heads/main/OTA%20Files/firmware.bin"
 #define OTA_CHECK_INTERVAL 86400UL // How often to check for updates (in seconds, e.g., 24 hours)
 
 // Pin definitions for the RGB LED.

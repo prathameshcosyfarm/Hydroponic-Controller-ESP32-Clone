@@ -80,15 +80,13 @@ void WiFiEventGotIP(WiFiEvent_t event, WiFiEventInfo_t info)
 void WiFiEventDisconnected(WiFiEvent_t event, WiFiEventInfo_t info)
 {
   wifiConnected = false;
-  int newState = STATE_ERROR;
-  xQueueSend(stateQueue, &newState, 0); // Set state to error on disconnection.
   // In ESP32 Core 3.0+, 'disconnected' was renamed to 'wifi_sta_disconnected'
   Serial.printf("WiFi disconnected from AP, reason: %d. Retrying...\n", info.wifi_sta_disconnected.reason);
 
   // Attempt to reconnect using the stored global credentials.
   WiFi.begin(g_ssid.c_str(), g_password.c_str());
-  newState = STATE_CONNECTING;
-  xQueueSend(stateQueue, &newState, 0); // Set state to connecting while attempting to reconnect.
+  int newState = STATE_CONNECTING;
+  xQueueSend(stateQueue, &newState, 0); // Maintain connecting state during retry
 }
 
 // Initializes WiFi connection.
