@@ -353,7 +353,7 @@ void setup()
   xTaskCreate(
       wifiMonitorTask,
       "WiFiMonitor",
-      8192,
+      4096, // Reduced from 8KB to free up heap for SSL
       NULL,
       1,
       NULL);
@@ -371,7 +371,7 @@ void setup()
   xTaskCreate(
       co2Task,
       "CO2Sensor",
-      4096,
+      3072, // Reduced from 4KB
       NULL,
       1,
       NULL);
@@ -380,7 +380,7 @@ void setup()
   xTaskCreate(
       laserTask,
       "LaserLevel",
-      4096,
+      3072, // Reduced from 4KB
       NULL,
       1,
       NULL);
@@ -397,7 +397,7 @@ void setup()
   xTaskCreate(
       tankTask,
       "TankLevel",
-      4096,
+      3072, // Reduced from 4KB
       NULL,
       1,
       NULL);
@@ -414,7 +414,7 @@ void setup()
   xTaskCreate(
       thermalTask,
       "Thermal",
-      4096, // 16KB was excessive for DHT reads; 4KB is plenty.
+      3072, // Reduced from 4KB
       NULL,
       1,
       NULL);
@@ -422,9 +422,9 @@ void setup()
   xTaskCreate(
       backendTask,
       "Backend",
-      8192, // Stack for WebSocket processing
+      16384, // Increased stack size for SSL/WSS handshake stability
       NULL,
-      1,
+      2, // Increased priority to ensure smooth SSL/WSS handshakes
       NULL);
 } // Close setup()
 

@@ -3,6 +3,7 @@
 #include <freertos/queue.h>
 #include "LED_Manager.h"
 #include "define.h" // Include define.h for state definitions
+#include "Backend_Manager.h"
 
 // Variables for managing LED blinking.
 // unsigned long lastBlink = 0; // No longer needed for fading states
@@ -87,7 +88,14 @@ void ledBlink(int state, unsigned long now)
     ledSetColor(0, 0, blinkState ? 255 : 0); // Blue blink
     break;
   case STATE_CONNECTED:
-    ledSetColor(0, 255, 0); // Solid green
+    if (isBackendConnected()) 
+    {
+      ledSetColor(0, 255, 0); // Solid green when backend is online
+    }
+    else
+    {
+      ledSetColor(0, blinkState ? 255 : 0, 0); // 1Hz Green blink (500ms on/off) when backend is offline
+    }
     break;
   case STATE_ERROR:
     ledSetColor(blinkState ? 255 : 0, 0, 0); // Red blink

@@ -161,9 +161,8 @@ extern bool g_circPumpEnabled;
 #define AC_PUMP_RUN_TIME_MS 90000UL // 90 seconds max runtime watchdog
 extern float g_acWaterPumpedToday;  // Ensure this is visible to main.cpp
 
-// Backend WebSocket Configuration
-#define BACKEND_WS_HOST "les-galvanic-interruptedly.ngrok-free.dev" // Replace with your actual NGROK host
-#define BACKEND_WS_PORT 443                                         // NGROK HTTPS/WSS uses port 443
-#define BACKEND_WS_PATH "/ws/device"
+// NGROK HTTP Backend Configuration (working)
+#define CMS_SERVER_URL "http://les-galvanic-interruptedly.ngrok-free.dev/api/log"
+#define CMS_API_KEY "MY_SECRET_KEY"
 
 #endif // DEFINE_H
