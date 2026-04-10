@@ -8,31 +8,47 @@
 // External globals from various managers for serialization
 extern float water_temp_c;
 extern int g_co2Ppm;
+extern int g_co2Temp;
+extern float g_co2StdDev;
 extern float g_waterLevelPct;
+extern float g_waterVolumeL;
+extern float g_waterDistanceCm;
+extern float g_tankStdDev;
 extern float g_laserLevelPct;
+extern float g_laserDistanceCm;
+extern float g_laserStdDev;
 extern float g_tankHealthPct;
 extern float g_laserHealthPct;
 extern float avg_temp_c;
 extern float avg_humid_pct;
+extern float g_heatIndex;
+extern float g_thermalStdDev;
+extern float g_acWaterPumpedToday;
+extern bool g_circPumpRunning;
+extern bool g_acPumpRunning;
+extern String g_lat;
+extern String g_lon;
+extern String g_localTime;
+extern String g_timezone;
 
 static bool backendActive = true;
-static unsigned long lastPost = 0;
+static bool backendSuccessfullyPosted = false; // New flag to track successful posts
+static unsigned long lastPost = 0; // Initialized to 0 to trigger immediate first post
 const unsigned long POST_INTERVAL = 30000; // 30s
 
 bool isBackendConnected()
 {
-    return backendActive;
+    // Return true only if backend communication is active AND the last post was successful
+    return backendActive && backendSuccessfullyPosted;
 }
 
 void backendSendStatus()
 {
-    lastPost = millis();
-
     if (!wifiConnected || !backendActive)
         return;
 
     WiFiClient client;
-    client.setTimeout(15000);
+    client.setTimeout(4000); // Timeout must be shorter than the 5s Watchdog (WDT)
 
     HTTPClient http;
     String url = CMS_SERVER_URL;
@@ -48,18 +64,47 @@ void backendSendStatus()
     doc["version"] = FIRMWARE_VERSION;
     doc["uptime"] = millis() / 1000;
     doc["state"] = g_currentSystemState;
+    doc["localTime"] = g_localTime;
+    doc["timezone"] = g_timezone;
+
+    JsonObject location = doc["location"].to<JsonObject>();
+    location["lat"] = g_lat;
+    location["lon"] = g_lon;
 
     JsonObject sensors = doc["sensors"].to<JsonObject>();
-    sensors["airTemp"] = avg_temp_c;
-    sensors["humidity"] = avg_humid_pct;
-    sensors["waterTemp"] = water_temp_c;
-    sensors["co2"] = g_co2Ppm;
-    sensors["tankLevel"] = g_waterLevelPct;
-    sensors["laserLevel"] = g_laserLevelPct;
+    
+    JsonObject air = sensors["air"].to<JsonObject>();
+    air["temp"] = avg_temp_c;
+    air["humidity"] = avg_humid_pct;
+    air["heatIndex"] = g_heatIndex;
+    air["jitter"] = g_thermalStdDev;
+
+    JsonObject water = sensors["water"].to<JsonObject>();
+    water["temp"] = water_temp_c;
+    water["levelPct"] = g_waterLevelPct;
+    water["volumeL"] = g_waterVolumeL;
+    water["distCm"] = g_waterDistanceCm;
+    water["jitter"] = g_tankStdDev;
+
+    JsonObject co2 = sensors["co2"].to<JsonObject>();
+    co2["ppm"] = g_co2Ppm;
+    co2["intTemp"] = g_co2Temp;
+    co2["jitter"] = g_co2StdDev;
+
+    JsonObject laser = sensors["laser"].to<JsonObject>();
+    laser["levelPct"] = g_laserLevelPct;
+    laser["distCm"] = g_laserDistanceCm;
+    laser["jitter"] = g_laserStdDev;
+
+    JsonObject pumps = doc["pumps"].to<JsonObject>();
+    pumps["circulation"] = g_circPumpRunning;
+    pumps["acDrain"] = g_acPumpRunning;
+    pumps["acTotalTodayL"] = g_acWaterPumpedToday;
 
     JsonObject diagnostics = doc["diag"].to<JsonObject>();
     diagnostics["tankHealth"] = g_tankHealthPct;
     diagnostics["laserHealth"] = g_laserHealthPct;
+    diagnostics["ip"] = WiFi.localIP().toString();
     diagnostics["rssi"] = WiFi.RSSI();
     diagnostics["heap"] = ESP.getFreeHeap();
 
@@ -71,14 +116,35 @@ void backendSendStatus()
     String response = http.getString();
 
     Serial.printf("[BACKEND] HTTP %d body:%d bytes\n", httpCode, response.length());
-    if (httpCode >= 200 && httpCode < 400)
+    
+    // Refined check: success requires a 2xx/3xx code AND a non-empty response body
+    if (httpCode >= 200 && httpCode < 400 && response.length() > 0)
     {
-        Serial.printf("[SUCCESS] HTTP %d | %s\n", httpCode, response.substring(0, 100));
-        lastPost = millis();
+        JsonDocument responseDoc;
+        DeserializationError error = deserializeJson(responseDoc, response);
+
+        // Verify the JSON structure and look for the success key
+        if (!error && responseDoc["status"] == "success")
+        {
+            Serial.printf("[SUCCESS] HTTP %d | Verified Logic: %s\n", httpCode, response.c_str());
+            backendSuccessfullyPosted = true;
+            lastPost = millis();
+        }
+        else
+        {
+            Serial.printf("[WARN] HTTP %d but JSON Verification Failed. Error: %s\n", httpCode, error.c_str());
+            backendSuccessfullyPosted = false;
+        }
+    }
+    else if (httpCode >= 200 && httpCode < 400 && response.length() == 0)
+    {
+        Serial.printf("[WARN] HTTP %d but EMPTY response. Backend logic might be down.\n", httpCode);
+        backendSuccessfullyPosted = false;
     }
     else
     {
-        Serial.printf("[FAIL] HTTP %d: %s\n", httpCode, response.substring(0, 100));
+        Serial.printf("[FAIL] HTTP %d: %s\n", httpCode, response.c_str());
+        backendSuccessfullyPosted = false;
     }
     http.end();
 }
@@ -96,9 +162,11 @@ void backendTask(void *parameter)
     {
         if (wifiConnected && backendActive)
         {
+            // Logic: Start sending immediately upon entering this loop, then every 30s
             unsigned long now = millis();
-            if (now - lastPost > POST_INTERVAL)
+            if (lastPost == 0 || (now - lastPost > POST_INTERVAL))
             {
+                lastPost = now; // Update lastPost before sending to prevent re-triggering
                 backendSendStatus();
             }
         }
@@ -107,6 +175,3 @@ void backendTask(void *parameter)
 }
 
 void backendInit() {} // Stateless
-
-void backendSendStatus();
-bool isBackendConnected();
