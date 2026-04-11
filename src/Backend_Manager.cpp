@@ -5,32 +5,6 @@
 #include "define.h"
 #include "WiFi_Manager.h"
 
-// External globals from various managers for serialization
-extern float water_temp_c;
-extern int g_co2Ppm;
-extern int g_co2Temp;
-extern float g_co2StdDev;
-extern float g_waterLevelPct;
-extern float g_waterVolumeL;
-extern float g_waterDistanceCm;
-extern float g_tankStdDev;
-extern float g_laserLevelPct;
-extern float g_laserDistanceCm;
-extern float g_laserStdDev;
-extern float g_tankHealthPct;
-extern float g_laserHealthPct;
-extern float avg_temp_c;
-extern float avg_humid_pct;
-extern float g_heatIndex;
-extern float g_thermalStdDev;
-extern float g_acWaterPumpedToday;
-extern bool g_circPumpRunning;
-extern bool g_acPumpRunning;
-extern String g_lat;
-extern String g_lon;
-extern String g_localTime;
-extern String g_timezone;
-
 static bool backendActive = true;
 static bool backendSuccessfullyPosted = false; // New flag to track successful posts
 static unsigned long lastPost = 0; // Initialized to 0 to trigger immediate first post
@@ -44,9 +18,11 @@ bool isBackendConnected()
 
 void backendSendStatus()
 {
-    if (!wifiConnected || !backendActive)
-        return;
+#if !HW_ENABLE_BACKEND
+    return;
+#endif
 
+    if (!wifiConnected || !backendActive) return;
     WiFiClient client;
     client.setTimeout(4000); // Timeout must be shorter than the 5s Watchdog (WDT)
 
@@ -151,6 +127,12 @@ void backendSendStatus()
 
 void backendTask(void *parameter)
 {
+#if !HW_ENABLE_BACKEND
+    backendActive = false;
+    Serial.println(F("Backend: Disabled by hardware flag."));
+    vTaskDelete(NULL);
+#endif
+
     while (g_currentSystemState != STATE_CONNECTED)
     {
         vTaskDelay(pdMS_TO_TICKS(500));
