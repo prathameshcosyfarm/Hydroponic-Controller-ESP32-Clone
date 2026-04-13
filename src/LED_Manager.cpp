@@ -94,7 +94,7 @@ void ledBlink(int state, unsigned long now)
     }
     else
     {
-      ledSetColor(blinkState ? 255 : 0, blinkState ? 128 : 0, 0); // Yellow/Orange blink = WiFi OK, Portal Offline
+      ledSetColor(0, blinkState ? 255 : 0, blinkState ? 255 : 0); // Cyan blink = WiFi OK, Backend Offline
     }
     break;
   case STATE_ERROR:

@@ -15,7 +15,8 @@ extern float g_laserHealthPct;
 extern float avg_temp_c;
 extern float avg_humid_pct;
 
-static bool backendActive = true;
+static bool backendActive = false; // Do not assume availability on boot
+static int consecutiveFailures = 0;
 static unsigned long lastPost = 0;
 const unsigned long POST_INTERVAL = 60000; // 1 minute
 
@@ -41,6 +42,8 @@ void backendSendStatus()
     http.begin(client, url);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-API-Key", CMS_API_KEY);
+    http.addHeader("ngrok-skip-browser-warning", "true");
+    http.addHeader("Accept-Encoding", "identity");
     http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
 
     JsonDocument doc;
@@ -73,27 +76,42 @@ void backendSendStatus()
     Serial.printf("[BACKEND] HTTP %d body:%d bytes\n", httpCode, response.length());
     if (httpCode >= 200 && httpCode < 400)
     {
-        Serial.printf("[SUCCESS] HTTP %d | %s\n", httpCode, response.substring(0, 100));
+        // Print the response only if it's likely plain text
+        if (response.length() > 0 && (unsigned char)response[0] < 128)
+        {
+            Serial.printf("[SUCCESS] HTTP %d | %s\n", httpCode, response.substring(0, 100).c_str());
+        }
+        else
+        {
+            Serial.printf("[SUCCESS] HTTP %d | <binary or compressed data>\n", httpCode);
+        }
+        
         backendActive = true;
+        consecutiveFailures = 0;
     }
     else
     {
         Serial.printf("[FAIL] HTTP %d: %s\n", httpCode, response.substring(0, 100));
-        backendActive = false;
+        consecutiveFailures++;
+        if (consecutiveFailures > 3) backendActive = false;
     }
     http.end();
 }
 
 void backendTask(void *parameter)
 {
+    // Wait for WiFi_Manager to finish NTP sync and OTA checks
     while (g_currentSystemState != STATE_CONNECTED)
     {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 
-    Serial.println("Backend: Starting periodic JSON status sends every 60s.");
+    Serial.println("Backend: Core services (NTP/OTA) ready. Performing initial availability check...");
+    
+    // Perform an immediate initial check to verify backend presence
+    backendSendStatus();
 
-    for (;;)
+    for (;;) 
     {
         if (wifiConnected)
         {

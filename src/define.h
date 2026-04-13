@@ -148,7 +148,7 @@ extern bool laserEnabled;
 #define TANK_HEIGHT_CM 30.0f        // Physical height of the tank
 #define TANK_MOTOR_SUCTION_CM 12.0f // Height of suction mouth from bottom
 #define TANK_SAFETY_BUFFER_CM 2.0f  // Safety buffer above suction to trigger warning early
-
+#define TANK_HEALTH_CRITICAL 40.0f  // Threshold to mark sensor as fully unusable
 #define TANK_FULL_DIST_CM 2.0f     // 100% Usable (2cm from sensor = 28cm water) - Range extended for testing
 #define TANK_EMPTY_DIST_CM 30.0f   // 0% = tank empty (sensor at 30cm height)
 #define TANK_TOTAL_VOLUME_L 150.0f // Total capacity in Liters
@@ -185,4 +185,3 @@ extern float g_acWaterPumpedToday; // Ensure this is visible to main.cpp
 #define CMS_API_KEY "MY_SECRET_KEY"
 
 #endif // DEFINE_H
-
