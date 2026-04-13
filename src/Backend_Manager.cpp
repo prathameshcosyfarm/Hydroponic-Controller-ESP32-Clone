@@ -18,7 +18,7 @@ extern float avg_humid_pct;
 static bool backendActive = false; // Do not assume availability on boot
 static int consecutiveFailures = 0;
 static unsigned long lastPost = 0;
-const unsigned long POST_INTERVAL = 60000; // 1 minute
+const unsigned long POST_INTERVAL = 10000UL; // 10 seconds
 
 bool isBackendConnected()
 {
