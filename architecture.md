@@ -49,9 +49,9 @@ Repo: https://github.com/PrathameshMestry/CosyFarm-ESP32
 | **WiFi_Manager** | STA (NVS/\"COSYFARM\") monitor+rollback | Async/100ms | 8192 | wifiConnected; AP SSID=g_deviceId. Sends state changes to `stateQueue`. Uses `g_syncTriggered` for NTP/OTA. |
 | **systemInfoTask** | Aggregate Serial/LittleFS reports | 60s | 8192 | Uptime, sensors/CO2/Laser, WiFi, mem/heap/PSRAM, `g_currentSystemState`/OTA prog. |
 | **wifiMonitorTask** | Events+NTP/OTA | 100ms | 8192 | Reconnect, ntpAttempt/otaCheckAfterNtp. Sends state changes to `stateQueue`. |
-| **Backend_Manager** | WebSocket JSON data streaming | 10s | 8192 | Real-time sensor telemetry to `BACKEND_WS_HOST`. |
+| **Backend_Manager** | HTTP POST JSON telemetry to CMS_SERVER_URL | 10s (POST_INTERVAL) | 8192 | deviceId/version/uptime/state/sensors{airTemp,humidity,waterTemp,co2,tankLevel,laserLevel}/diag{tankHealth,laserHealth,rssi,heap}. |
 
-**Other Modules** (non-task/init-only):
+### Backend Telemetry JSON&#10;```json&#10;{&#10;  "deviceId": "COSYFARM-XXXX",&#10;  "version": "1.0.1",&#10;  "uptime": 12345,&#10;  "state": 3,&#10;  "sensors": {&#10;    "airTemp": 24.5,&#10;    "humidity": 65.2,&#10;    "waterTemp": 22.1,&#10;    "co2": 420,&#10;    "tankLevel": 75.0,&#10;    "laserLevel": 68.3&#10;  },&#10;  "diag": {&#10;    "tankHealth": 92.1,&#10;    "laserHealth": 88.5,&#10;    "rssi": -65,&#10;    "heap": 285000&#10;  }&#10;}&#10;```&#10;&#10;**Other Modules** (non-task/init-only):
  
 - **NTP_Manager**: GeoIP/tz JSON sync on connect. Defines `g_lat`, `g_lon`, `g_timezone`, `g_utcTime`, `g_localTime`, `g_epochTime`. `rtcUpdate` daily.
 - **Command_Manager**: Serial CLI (W/w/C/c/S/s/F/f/T/t/M/m). Includes `thermalReset()`, `tankReset()`, `triggerManualCirc()`.

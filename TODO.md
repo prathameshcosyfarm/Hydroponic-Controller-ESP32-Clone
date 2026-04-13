@@ -1,1 +1,1 @@
-- [x] Edit src/Backend_Manager.cpp (POST_INTERVAL = 10000UL)&#10;- [x] Verify edit (git diff)
+- [x] Edit architecture.md (Backend_Manager desc + JSON structure)&#10;- [x] Verify edit (git diff)
