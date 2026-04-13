@@ -10,39 +10,39 @@
 // No need <String.h>, Arduino.h covers
 
 // =============================================================================
-// HARDWARE INITIALIZATION FLAGS (Initialization Masking)
-// =============================================================================
-// Set to 1 to enable the component/service, or 0 to mask its initialization.
+ // HARDWARE INITIALIZATION FLAGS (Initialization Masking)
+ // =============================================================================
+ // Set to 1 to enable the component/service, or 0 to mask its initialization.
 
 // Connectivity & Core Services
 #define HW_ENABLE_WIFI 1    // Master toggle for WiFi functionality
 #define HW_ENABLE_NTP 1     // Network Time Protocol & Geo-Location API
-#define HW_ENABLE_OTA 1     // Over-the-Air Firmware Update capability
+#define HW_ENABLE_OTA 1     // Over-the-Air Firmware Update capability (local HEAD)
 #define HW_ENABLE_BACKEND 1 // HTTP Data Logging (Backend/CMS)
 
 // Sensors
-#define HW_ENABLE_DHT22      1 // Air Temperature & Humidity (Thermal Manager)
-#define HW_ENABLE_MHZ19      0 // CO2 Concentration Sensor (CO2 Manager)
-#define HW_ENABLE_TOF        0 // Laser Time-of-Flight Sensor (LaserTOF Manager)
+#define HW_ENABLE_DHT22 1      // Air Temperature & Humidity (Thermal Manager)
+#define HW_ENABLE_MHZ19 0      // CO2 Concentration Sensor (CO2 Manager)
+#define HW_ENABLE_TOF 0        // Laser Time-of-Flight Sensor (LaserTOF Manager)
 #define HW_ENABLE_ULTRASONIC 0 // HC-SR04 Water Level Sensor (Tank Manager)
-#define HW_ENABLE_DS18B20    0 // DS18B20 Water Temperature (Tank Manager)
+#define HW_ENABLE_DS18B20 0    // DS18B20 Water Temperature (Tank Manager)
 
 // Actuators & Pumps
-#define HW_ENABLE_CIRC_PUMP  0 // Nutrient Circulation Pump
-#define HW_ENABLE_AC_PUMP    0 // AC Condensate Drain Pump
+#define HW_ENABLE_CIRC_PUMP 0 // Nutrient Circulation Pump
+#define HW_ENABLE_AC_PUMP 0   // AC Condensate Drain Pump
 
 // Global Pin Definitions (Board Layout Documentation)
-#define PIN_DHT22      6
-#define PIN_DS18B20    7
-#define PIN_MHZ_RX     17
-#define PIN_MHZ_TX     18
-#define PIN_TOF_SDA    4
-#define PIN_TOF_SCL    5
-#define PIN_TANK_TRIG  10
-#define PIN_TANK_ECHO  11
-#define PIN_CIRC_PUMP  15
-#define PIN_AC_FLOAT   8
-#define PIN_AC_PUMP    9
+#define PIN_DHT22 6
+#define PIN_DS18B20 7
+#define PIN_MHZ_RX 17
+#define PIN_MHZ_TX 18
+#define PIN_TOF_SDA 4
+#define PIN_TOF_SCL 5
+#define PIN_TANK_TRIG 10
+#define PIN_TANK_ECHO 11
+#define PIN_CIRC_PUMP 15
+#define PIN_AC_FLOAT 8
+#define PIN_AC_PUMP 9
 // =============================================================================
 
 // Global variables, declared as extern to be defined in a single .cpp file (e.g., NTP_Manager.cpp or main.cpp).
@@ -60,7 +60,6 @@ extern String g_localTime;
 extern String g_timezone;
 
 // Current operational state of the device.
-// Replaced by a queue for inter-task communication and a global for current status.
 extern QueueHandle_t stateQueue;
 extern SemaphoreHandle_t i2cMutex;
 extern volatile int g_currentSystemState;
@@ -78,18 +77,15 @@ extern bool g_stressTestActive; // Global flag for high-frequency sampling
 extern Preferences prefs;
 // Flag indicating if WiFi is currently connected.
 extern bool wifiConnected;
-// Global flag for Safe Mode status
 // Counter for NTP synchronization retries.
 extern int ntpRetryCount;
 // Local firmware version string.
 extern String localOtaVersion;
 // Timestamp of the last OTA check.
-
 extern time_t lastOtaCheck;
 extern String g_deviceId;
 
 // Default WiFi credentials, used if no saved credentials are found.
-
 #define DEFAULT_SSID "COSYFARM"
 #define DEFAULT_PASS "12345678"
 
