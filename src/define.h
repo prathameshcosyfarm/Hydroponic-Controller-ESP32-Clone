@@ -95,7 +95,7 @@ extern String g_deviceId;
 
 // The current version of the firmware. This is used to compare against the remote version
 // to decide if an update is required.
-#define FIRMWARE_VERSION "1.0.0"
+#define FIRMWARE_VERSION "1.0.1"  // Bumped for new commit (2024)
 
 #define OTA_VERSION_URL "https://raw.githubusercontent.com/profpmterna/Hydroponic-Controller-ESP32-Clone/refs/heads/main/OTA%20Files/version.txt"
 #define OTA_FIRMWARE_URL "https://raw.githubusercontent.com/profpmterna/Hydroponic-Controller-ESP32-Clone/refs/heads/main/OTA%20Files/firmware.bin"
@@ -146,7 +146,7 @@ extern bool laserEnabled;
 // Water surface LaserTOF stability (reflections, refraction)
 #define WATER_REFRACTIVE_INDEX 1.33f
 #define TOF_REFLECTION_THRESHOLD_CM 8.0f // Reject median < this as reflection
-#define TOF_WATER_COR
+#define TOF_WATER_CORRECTION 0.9f         // Completed: Correction factor for water refraction (user-defined)
 
 // Calibration for a 30cm Tank
 #define TANK_HEIGHT_CM 30.0f        // Physical height of the tank
@@ -189,3 +189,4 @@ extern float g_acWaterPumpedToday; // Ensure this is visible to main.cpp
 #define CMS_API_KEY "MY_SECRET_KEY"
 
 #endif // DEFINE_H
+
