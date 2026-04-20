@@ -4,96 +4,139 @@
 #include <WiFiClient.h>
 #include "define.h"
 #include "WiFi_Manager.h"
+#include "OTA_Manager.h"
 
-// External globals from various managers for serialization
-extern float water_temp_c;
-extern int g_co2Ppm;
-extern float g_waterLevelPct;
-extern float g_laserLevelPct;
-extern float g_tankHealthPct;
-extern float g_laserHealthPct;
-extern float avg_temp_c;
-extern float avg_humid_pct;
-
-static bool backendActive = false; // Do not assume availability on boot
+static bool backendActive = false;
 static int consecutiveFailures = 0;
 static unsigned long lastPost = 0;
-const unsigned long POST_INTERVAL = 10000UL; // 10 seconds
+const unsigned long POST_INTERVAL = 10000UL; // 10 seconds base
+const int BACKOFF_MAX_SHIFT = 5;             // cap: 10s * 2^5 = 320s (~5 min)
 
 bool isBackendConnected()
 {
     return backendActive;
 }
 
+// Exponential backoff: doubles interval per failure, capped so a down backend is polled at most every ~5 min.
+static unsigned long currentInterval()
+{
+    int shift = consecutiveFailures;
+    if (shift > BACKOFF_MAX_SHIFT) shift = BACKOFF_MAX_SHIFT;
+    return POST_INTERVAL * (1UL << shift);
+}
+
 void backendSendStatus()
 {
     lastPost = millis();
 
-    if (!wifiConnected)
+    if (!wifiConnected || isOtaInProgress())
         return;
 
     WiFiClient client;
-    client.setTimeout(15000);
-
     HTTPClient http;
     String url = CMS_SERVER_URL;
     Serial.printf("[BACKEND] HTTP POST to: %s\n", url.c_str());
 
+    http.useHTTP10(true); // Disable chunked encoding and GZIP to ensure plain text response
+    http.setConnectTimeout(10000);
+    http.setTimeout(15000);
     http.begin(client, url);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-API-Key", CMS_API_KEY);
     http.addHeader("ngrok-skip-browser-warning", "true");
-    http.addHeader("Accept-Encoding", "identity");
+    http.addHeader("Accept", "application/json");
+    http.addHeader("Accept-Encoding", "identity;q=1, *;q=0"); // Strictly request uncompressed data
+    http.setUserAgent("ESP32-Hydro-Controller/" FIRMWARE_VERSION);
     http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
 
     JsonDocument doc;
-    doc["deviceId"] = g_deviceId;
-    doc["version"] = FIRMWARE_VERSION;
-    doc["uptime"] = millis() / 1000;
-    doc["state"] = g_currentSystemState;
 
+    // 1. System & Metadata
+    JsonObject system = doc["system"].to<JsonObject>();
+    system["deviceId"] = g_deviceId;
+    system["version"] = FIRMWARE_VERSION;
+    system["model"] = ESP.getChipModel();
+    system["revision"] = ESP.getChipRevision();
+    system["uptime"] = millis() / 1000;
+    system["heapFree"] = ESP.getFreeHeap();
+    system["psramFree"] = ESP.getFreePsram();
+    system["state"] = g_currentSystemState;
+
+    // 2. Network Telemetry
+    JsonObject network = doc["network"].to<JsonObject>();
+    network["ip"] = WiFi.localIP().toString();
+    network["rssi"] = WiFi.RSSI();
+    network["ssid"] = WiFi.SSID();
+    network["mac"] = WiFi.macAddress();
+
+    // 3. Time & Location (NTP/GeoIP)
+    JsonObject timeLoc = doc["time"].to<JsonObject>();
+    timeLoc["local"] = g_localTime;
+    timeLoc["utc"] = g_utcTime;
+    timeLoc["timezone"] = g_timezone;
+    timeLoc["lat"] = g_lat;
+    timeLoc["lon"] = g_lon;
+
+    // 4. Sensor Readings & Signal Quality (Jitter)
     JsonObject sensors = doc["sensors"].to<JsonObject>();
     sensors["airTemp"] = avg_temp_c;
-    sensors["humidity"] = avg_humid_pct;
+    sensors["airHumid"] = avg_humid_pct;
+    sensors["heatIndex"] = g_heatIndex;
+    sensors["airJitter"] = g_thermalStdDev;
     sensors["waterTemp"] = water_temp_c;
-    sensors["co2"] = g_co2Ppm;
+    sensors["co2Ppm"] = g_co2Ppm;
+    sensors["co2Temp"] = g_co2Temp;
+    sensors["co2Jitter"] = g_co2StdDev;
     sensors["tankLevel"] = g_waterLevelPct;
+    sensors["tankVolumeL"] = g_waterVolumeL;
+    sensors["tankJitter"] = g_tankStdDev;
     sensors["laserLevel"] = g_laserLevelPct;
+    sensors["laserJitter"] = g_laserStdDev;
 
-    JsonObject diagnostics = doc["diag"].to<JsonObject>();
-    diagnostics["tankHealth"] = g_tankHealthPct;
-    diagnostics["laserHealth"] = g_laserHealthPct;
-    diagnostics["rssi"] = WiFi.RSSI();
-    diagnostics["heap"] = ESP.getFreeHeap();
+    // 5. Actuator States
+    JsonObject actuators = doc["actuators"].to<JsonObject>();
+    actuators["circEnabled"] = g_circPumpEnabled;
+    actuators["circPump"] = g_circPumpRunning;
+    actuators["acPump"] = g_acPumpRunning;
+    actuators["acVolToday"] = g_acWaterPumpedToday;
+
+    // 6. Component Health Flags
+    JsonObject health = doc["health"].to<JsonObject>();
+    health["dhtOk"] = dhtEnabled;
+    health["ds18b20Ok"] = ds18b20Enabled;
+    health["co2Ok"] = co2Enabled;
+    health["co2Warm"] = co2WarmedUp;
+    health["laserOk"] = laserEnabled;
+    health["tankOk"] = tankSensorEnabled;
+    health["tankHealth"] = g_tankHealthPct;
+    health["laserHealth"] = g_laserHealthPct;
 
     String payload;
     serializeJson(doc, payload);
-    Serial.println("[JSON] " + payload);
 
     int httpCode = http.POST(payload);
-    String response = http.getString();
+    String response = (httpCode > 0) ? http.getString() : http.errorToString(httpCode);
 
-    Serial.printf("[BACKEND] HTTP %d body:%d bytes\n", httpCode, response.length());
-    if (httpCode >= 200 && httpCode < 400)
+    JsonDocument responseDoc;
+    DeserializationError jsonError = deserializeJson(responseDoc, response);
+    bool statusVerified = (!jsonError && responseDoc["status"] == "ok");
+
+    if (httpCode >= 200 && httpCode < 400 && statusVerified)
     {
-        // Print the response only if it's likely plain text
-        if (response.length() > 0 && (unsigned char)response[0] < 128)
-        {
-            Serial.printf("[SUCCESS] HTTP %d | %s\n", httpCode, response.substring(0, 100).c_str());
-        }
-        else
-        {
-            Serial.printf("[SUCCESS] HTTP %d | <binary or compressed data>\n", httpCode);
-        }
-        
+        Serial.printf("[BACKEND] OK HTTP %d (%u bytes)\n", httpCode, response.length());
         backendActive = true;
         consecutiveFailures = 0;
     }
     else
     {
-        Serial.printf("[FAIL] HTTP %d: %s\n", httpCode, response.substring(0, 100));
-        consecutiveFailures++;
-        if (consecutiveFailures > 3) backendActive = false;
+        bool printable = response.length() > 0 && (unsigned char)response[0] < 128;
+        Serial.printf("[BACKEND] FAIL HTTP %d: %s%s\n",
+                      httpCode,
+                      jsonError ? "bad-json " : "",
+                      printable ? response.substring(0, 100).c_str() : "<binary>");
+
+        backendActive = false;
+        if (consecutiveFailures < 100) consecutiveFailures++;
     }
     http.end();
 }
@@ -107,16 +150,15 @@ void backendTask(void *parameter)
     }
 
     Serial.println("Backend: Core services (NTP/OTA) ready. Performing initial availability check...");
-    
+
     // Perform an immediate initial check to verify backend presence
     backendSendStatus();
 
-    for (;;) 
+    for (;;)
     {
-        if (wifiConnected)
+        if (wifiConnected && !isOtaInProgress())
         {
-            unsigned long now = millis();
-            if (now - lastPost > POST_INTERVAL)
+            if (millis() - lastPost > currentInterval())
             {
                 backendSendStatus();
             }
