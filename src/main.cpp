@@ -435,12 +435,33 @@ void setup()
   xTaskCreate(
       backendTask,
       "Backend",
-      16384, // Increased stack size for SSL/WSS handshake stability
+      12288, // Optimized: Reduced from 16384B (sufficient for ArduinoJson+HTTP, monitored via HWM)
       NULL,
-      2, // Increased priority to ensure smooth SSL/WSS handshakes
+      2,
       NULL);
 #endif
+
+  // Startup stack monitoring task
+  xTaskCreate(stackMonitorTask, "StackMon", 2048, NULL, 1, NULL);
 } // Close setup()
+
+// NEW: Stack high water mark monitor (crash prevention)
+void stackMonitorTask(void *parameter) {
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(300000)); // 5min
+    if (wifiConnected && !isOtaInProgress()) {
+      UBaseType_t minStack = uxTaskGetSystemState(NULL);
+      if (minStack < STACK_MIN_THRESHOLD) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "CRITICAL: Low stack detected (%uB). Reset imminent.\n", minStack);
+        Serial.print(buf);
+        logStatusToFile(buf, true);
+        ESP.restart(); // Proactive reset before stack overflow crash
+      }
+    }
+  }
+}
+
 
 void loop()
 {

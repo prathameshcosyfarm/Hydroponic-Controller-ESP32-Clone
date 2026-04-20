@@ -184,4 +184,8 @@ extern float g_acWaterPumpedToday; // Ensure this is visible to main.cpp
 #define CMS_SERVER_URL "http://les-galvanic-interruptedly.ngrok-free.dev/api/log"
 #define CMS_API_KEY "MY_SECRET_KEY"
 
+// Stack safety
+#define STACK_MIN_THRESHOLD 512 // Min free stack bytes before panic/reset
+
 #endif // DEFINE_H
+
