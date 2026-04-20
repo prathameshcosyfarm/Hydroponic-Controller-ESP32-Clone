@@ -1,9 +1,9 @@
-# ESP32 Cosy Farm Controller - Architecture (Updated to match current codebase incl. CO2 v1.1.0)
+# ESP32 Cosy Farm Controller - Architecture (Updated to match current codebase incl. CO2 v1.1.0 & Backend telemetry b0ce744)
 
 ## Overview
-ESP32-S3 WiFi controller for Cosy Farm IoT system. Manages thermal monitoring (DHT22), water tank (HC-SR04 + DS18B20 + **VL53L0X**), AC condensate drainage (float + relay pump), **CO2 (MH-Z19E)**, with RGB LED status, NTP/RTC time sync, OTA from GitHub, serial CLI commands. Uses FreeRTOS tasks, LittleFS logging with RTC-persistent buffer, NVS prefs, auto sensor failure recovery. PlatformIO Arduino framework.
+ESP32-S3 WiFi controller for Cosy Farm IoT system. Manages thermal monitoring (DHT22), water tank (HC-SR04 + DS18B20 + **VL53L0X**), AC condensate drainage (float + relay pump), **CO2 (MH-Z19E)**, with RGB LED status, NTP/RTC time sync, OTA from GitHub, serial CLI commands, backend telemetry. Uses FreeRTOS tasks, LittleFS logging with RTC-persistent buffer, NVS prefs, auto sensor failure recovery. PlatformIO Arduino framework.
 
-Repo: https://github.com/PrathameshMestry/CosyFarm-ESP32
+Repo: https://github.com/prathameshcosyfarm/Hydroponic-Controller-ESP32-Clone (fork of upstream)
 
 ## Hardware
 - **Board**: ESP32-S3-DevKitC-1 (8MB Flash, 512KB SRAM, dual-core 240MHz)
@@ -31,7 +31,7 @@ Repo: https://github.com/PrathameshMestry/CosyFarm-ESP32
 
 ### Core Components
 - **main.cpp**: Serial/10s delay → g_deviceId=eFuse MAC→NVS → LittleFS/RTC log → hw info → ledInit/wifiInit → tasks → sensor inits. 100ms loop(commandUpdate). systemInfoTask (60s reports: uptime/sensors/CO2/WiFi RSSI/IP/heap/PSRAM/g_currentSystemState).
-- **define.h**: Pins, globals (extern), states (0=NTP_SYNC ... 6=OTA_UPDATE), timings (AC_PUMP_RUN_TIME_MS=90s etc.), FIRMWARE_VERSION=\"1.0.0\". Defines `stateQueue` for inter-task state communication and `g_currentSystemState` as the authoritative system state. Includes new constants for Laser TOF (`TOF_SD_THRESHOLD`, `TOF_JUMP_THRESHOLD`, `TOF_MEDIAN_SAMPLES`, `TOF_MAX_SPREAD_CM`), AC Water (`AC_EMPTY_DEBOUNCE_MS`, `AC_PUMP_RUN_TIME_MS`), and `g_acWaterPumpedToday`.
+- **define.h**: Pins, globals (extern), states (0=NTP_SYNC ... 6=OTA_UPDATE), timings (AC_PUMP_RUN_TIME_MS=90s etc.), FIRMWARE_VERSION=\"1.0.1\". Defines `stateQueue` for inter-task state communication and `g_currentSystemState` as the authoritative system state. Includes new constants for Laser TOF (`TOF_SD_THRESHOLD`, `TOF_JUMP_THRESHOLD`, `TOF_MEDIAN_SAMPLES`, `TOF_MAX_SPREAD_CM`), AC Water (`AC_EMPTY_DEBOUNCE_MS`, `AC_PUMP_RUN_TIME_MS`), and `g_acWaterPumpedToday`.
 - **Logging**: LittleFS `/system_log.txt` (128kB trunc), RTC_DATA_ATTR 2kB buffer (persist resets/brownouts, flush overflow/10min/critical/60s reports).
 - **Storage**: NVS prefs (\"device\"/\"wifi-creds\"/\"ota\"), LittleFS mounted in setup.
 - **ID**: g_deviceId = "COSYFARM-" + Decimal representation of eFuse MAC.
@@ -49,10 +49,65 @@ Repo: https://github.com/PrathameshMestry/CosyFarm-ESP32
 | **WiFi_Manager** | STA (NVS/\"COSYFARM\") monitor+rollback | Async/100ms | 8192 | wifiConnected; AP SSID=g_deviceId. Sends state changes to `stateQueue`. Uses `g_syncTriggered` for NTP/OTA. |
 | **systemInfoTask** | Aggregate Serial/LittleFS reports | 60s | 8192 | Uptime, sensors/CO2/Laser, WiFi, mem/heap/PSRAM, `g_currentSystemState`/OTA prog. |
 | **wifiMonitorTask** | Events+NTP/OTA | 100ms | 8192 | Reconnect, ntpAttempt/otaCheckAfterNtp. Sends state changes to `stateQueue`. |
-| **Backend_Manager** | HTTP POST JSON telemetry to CMS_SERVER_URL | 10s (POST_INTERVAL) | 8192 | deviceId/version/uptime/state/sensors{airTemp,humidity,waterTemp,co2,tankLevel,laserLevel}/diag{tankHealth,laserHealth,rssi,heap}. |
+| **Backend_Manager** | Full JSON telemetry POST (system/network/time/sensors/actuators/health) to CMS_SERVER_URL w/ exponential backoff (10s base → ~5min max) & HTTP optimizations | ~10s avg | 8192 | Rich nested payload, consecutive fail tracking, uncompressed/no-chunked/timeout/strict JSON validation. |
 
-### Backend Telemetry JSON&#10;```json&#10;{&#10;  "deviceId": "COSYFARM-XXXX",&#10;  "version": "1.0.1",&#10;  "uptime": 12345,&#10;  "state": 3,&#10;  "sensors": {&#10;    "airTemp": 24.5,&#10;    "humidity": 65.2,&#10;    "waterTemp": 22.1,&#10;    "co2": 420,&#10;    "tankLevel": 75.0,&#10;    "laserLevel": 68.3&#10;  },&#10;  "diag": {&#10;    "tankHealth": 92.1,&#10;    "laserHealth": 88.5,&#10;    "rssi": -65,&#10;    "heap": 285000&#10;  }&#10;}&#10;```&#10;&#10;**Other Modules** (non-task/init-only):
- 
+### Backend Telemetry JSON
+```json
+{
+  "system": {
+    "deviceId": "COSYFARM-XXXX",
+    "version": "1.0.1",
+    "model": "ESP32-S3",
+    "uptime": 12345,
+    "heapFree": 285000,
+    "psramFree": 450000,
+    "state": 3
+  },
+  "network": {
+    "ip": "192.168.1.100",
+    "rssi": -65,
+    "ssid": "COSYFARM-XXXX"
+  },
+  "time": {
+    "local": "2024-10-01T12:00:00+05:30",
+    "lat": 19.07,
+    "lon": 72.87
+  },
+  "sensors": {
+    "airTemp": 24.5,
+    "airHumid": 65.2,
+    "heatIndex": 25.1,
+    "airJitter": 0.3,
+    "waterTemp": 22.1,
+    "co2Ppm": 420,
+    "co2Temp": 28.5,
+    "co2Jitter": 12,
+    "tankLevel": 75.0,
+    "tankVolumeL": 18.5,
+    "tankJitter": 1.2,
+    "laserLevel": 68.3,
+    "laserJitter": 0.8
+  },
+  "actuators": {
+    "circEnabled": true,
+    "circPump": false,
+    "acPump": false,
+    "acVolToday": 1.8
+  },
+  "health": {
+    "dhtOk": true,
+    "ds18b20Ok": true,
+    "co2Ok": true,
+    "co2Warm": true,
+    "laserOk": true,
+    "tankOk": true,
+    "tankHealth": 92.1,
+    "laserHealth": 88.5
+  }
+}
+**Updated (b0ce744): Full structure w/ jitter/actuators/health/network/time/backoff.**
+
+**Other Modules** (non-task/init-only):
 - **NTP_Manager**: GeoIP/tz JSON sync on connect. Defines `g_lat`, `g_lon`, `g_timezone`, `g_utcTime`, `g_localTime`, `g_epochTime`. `rtcUpdate` daily.
 - **Command_Manager**: Serial CLI (W/w/C/c/S/s/F/f/T/t/M/m). Includes `thermalReset()`, `tankReset()`, `triggerManualCirc()`.
 - **LED_Manager**: Dedicated FreeRTOS task (`ledTask`) consuming state changes from `stateQueue`. Updates `g_currentSystemState`. PWM RGB blink patterns per `g_currentSystemState` (e.g. solid green=CONNECTED).
@@ -75,12 +130,13 @@ Repo: https://github.com/PrathameshMestry/CosyFarm-ESP32
 - System: `g_currentSystemState` (0=NTP_SYNC..6=OTA_UPDATE), `stateQueue`, wifiConnected/ntpRetryCount, g_deviceId=\"COSYFARM-<ID>\", g_lat/g_lon/g_timezone/g_epochTime/g_utcTime/g_localTime, dhtEnabled/tankSensorEnabled/ds18b20Enabled/co2Enabled/laserEnabled/co2WarmedUp, otaInProgress, targetOtaMd5.
 
 ## Data Flow
-1. setup(): Serial(115200)/10s delay, g_deviceId=eFuse MAC→NVS, LittleFS/RTC log buffer, hw info print, ledInit/wifiInit → creates `stateQueue` → tasks(wifiMonitor/systemInfo/co2/laser/acWater/tank/thermal) → sensor inits.
-2. Sensor tasks update their respective globals. Manager tasks (WiFi, OTA) send state changes to `stateQueue`.
-3. `ledTask` consumes from `stateQueue`, updates `g_currentSystemState` (which is the authoritative system state), and controls the RGB LED.
-3. systemInfoTask aggregates → Serial + logStatusToFile (RTC-buffered).
-4. RTC day-change → NTP resync + daily resets (acWater).
-5. Loop: commandUpdate() → CLI actions (e.g., sensor reset).
+1. setup(): Serial(115200)/10s delay, g_deviceId=eFuse MAC→NVS, LittleFS/RTC log buffer, hw info print, ledInit/wifiInit → creates `stateQueue` → tasks(wifiMonitor/systemInfo/co2/laser/acWater/tank/thermal/backend) → sensor inits.
+2. Sensor tasks update globals. Manager tasks (WiFi/OTA/Backend) send state changes to `stateQueue`.
+3. `ledTask` consumes from `stateQueue`, updates `g_currentSystemState`, controls RGB LED.
+4. systemInfoTask aggregates → Serial + logStatusToFile (RTC-buffered).
+5. Backend_Manager POSTs telemetry ~10s (backoff on fail).
+6. RTC day-change → NTP resync + daily resets (acWater).
+7. Loop: commandUpdate() → CLI actions.
 
 ## Build & OTA
 **platformio.ini**:
@@ -96,8 +152,8 @@ lib_deps =
     paulstoffregen/OneWire @ ^2.3.7
     milesburton/DallasTemperature @ ^3.9.0
     links2004/WebSockets @ ^2.4.1
-    https://github.com/WifWaf/MH-Z19.git # MH-Z19E library
-    https://github.com/adafruit/Adafruit_VL53L0X.git # VL53L0X Laser TOF library
+    https://github.com/WifWaf/MH-Z19.git # MH-Z19E
+    https://github.com/adafruit/Adafruit_VL53L0X.git # VL53L0X
 build_flags = 
     -DCORE_DEBUG_LEVEL=1
     -DARDUINO_USB_CDC_ON_BOOT=1
@@ -105,14 +161,16 @@ build_flags =
     -DCONFIG_ESP_TASK_WDT_TIMEOUT_S=5
 ```
 
-**OTA URLs**:
-- Version: https://raw.githubusercontent.com/PrathameshMestry/CosyFarm-ESP32/main/version.txt
-- Firmware: https://raw.githubusercontent.com/PrathameshMestry/CosyFarm-ESP32/main/firmware.bin
+**OTA URLs** (update to match repo):
+- Version: https://raw.githubusercontent.com/prathameshcosyfarm/Hydroponic-Controller-ESP32-Clone/main/OTA Files/version.txt
+- Firmware: https://raw.githubusercontent.com/prathameshcosyfarm/Hydroponic-Controller-ESP32-Clone/main/OTA Files/firmware.bin
 
 ## Failure Handling
-- **Sensors**: Consecutive fail threshold (5 reads) → disable + 10min auto-recovery/re-init (separate HC-SR04/DS18B20/CO2/DHT).
-- **Logging**: RTC buffer survives brownout/reset, auto-flush.
-- **WDT**: 5s task timeout.
-- **OTA Rollback**: If new FW WiFi fail >5min.
+- **Sensors**: Consecutive fail threshold → disable + auto-recovery.
+- **Backend**: Exponential backoff (max ~5min), consecutiveFailures tracking.
+- **Logging**: RTC buffer survives resets.
+- **WDT**: 5s timeout.
+- **OTA**: Rollback on WiFi fail post-update.
 
-Firmware fully matches this architecture (incl. CO2). Flash & monitor with `pio run -t upload -t monitor`.
+Firmware matches architecture (latest backend commit b0ce744). Run `pio run -t upload -t monitor`.
+
